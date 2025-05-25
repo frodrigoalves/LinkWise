@@ -1,127 +1,179 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LinkWise Dashboard</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>Superland Admin Dashboard - LinkWise</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f7fa;
+      color: #333;
+    }
+    header {
+      background-color: #1a3c34;
+      color: white;
+      padding: 20px;
+      text-align: center;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+    }
+    .upload-section, .dashboard-section {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+    .upload-section h2, .dashboard-section h2 {
+      margin-top: 0;
+      color: #1a3c34;
+    }
+    .upload-section form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .upload-section input[type="file"] {
+      padding: 10px;
+    }
+    .upload-section button {
+      background-color: #1a3c34;
+      color: white;
+      border: none;
+      padding: 10px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .upload-section button:hover {
+      background-color: #2e5a50;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th {
+      background-color: #1a3c34;
+      color: white;
+    }
+    tr:hover {
+      background-color: #f1f1f1;
+    }
+    a {
+      color: #1a3c34;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    #status {
+      margin-top: 10px;
+      font-style: italic;
+      color: #555;
+    }
+  </style>
 </head>
-<body class="bg-gray-50 text-gray-900 font-sans">
-  <div class="max-w-5xl mx-auto py-10 px-4">
-    <div class="flex flex-col items-center justify-center text-center mb-8">
-      <img src="/branding/logo-full.png" alt="LinkWise Logo" class="w-64 mb-4">
-      <h1 class="text-3xl font-bold tracking-tight">Smart Connections. Real Results.</h1>
+<body>
+  <header>
+    <h1>Superland Admin Dashboard - LinkWise</h1>
+    <p>Smart Connections. Real Results.</p>
+  </header>
+
+  <div class="container">
+    <div class="upload-section">
+      <h2>Upload de Perfis LinkedIn</h2>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <input type="file" name="profiles" accept=".json" required />
+        <button type="submit">Enviar e Processar</button>
+      </form>
+      <div id="status"></div>
     </div>
 
-    <div class="flex flex-col md:flex-row gap-6 mb-10">
-      <div class="flex-1">
-        <form id="uploadForm" class="bg-white shadow-md rounded p-6 border" enctype="multipart/form-data">
-          <label class="block text-sm font-medium text-gray-700 mb-2">Arquivo JSON com perfis LinkedIn</label>
-          <input type="file" name="profiles" accept=".json" class="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" required>
-          <button type="submit" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded">Enviar e Processar</button>
-        </form>
-        <div id="status" class="text-sm text-center text-gray-600 mt-4"></div>
-      </div>
-      <div class="hidden md:block w-64 self-center">
-        <img src="/branding/avatar-agent.png" alt="LinkWise AI" class="rounded-xl shadow-xl">
-      </div>
-    </div>
-
-    <h2 class="text-xl font-semibold mb-2">📊 Scores dos Leads</h2>
-    <canvas id="scoreChart" class="w-full max-w-xl mx-auto mb-8"></canvas>
-
-    <div class="overflow-x-auto">
-      <table class="min-w-full bg-white border rounded shadow-sm">
-        <thead class="bg-gray-100">
+    <div class="dashboard-section">
+      <h2>📊 Scores dos Leads</h2>
+      <table id="leadsTable">
+        <thead>
           <tr>
-            <th class="text-left px-4 py-2">Nome</th>
-            <th class="text-left px-4 py-2">LinkedIn</th>
-            <th class="text-left px-4 py-2">Angel</th>
-            <th class="text-left px-4 py-2">ICP</th>
-            <th class="text-left px-4 py-2">Final</th>
+            <th>Nome</th>
+            <th>LinkedIn</th>
+            <th>Angel Score</th>
+            <th>ICP Score</th>
+            <th>Final Score</th>
           </tr>
         </thead>
-        <tbody id="leadsTable" class="text-sm"></tbody>
+        <tbody id="leadsBody"></tbody>
       </table>
     </div>
   </div>
 
   <script>
     const form = document.getElementById('uploadForm');
-    const status = document.getElementById('status');
-    const table = document.getElementById('leadsTable');
-    const chartCanvas = document.getElementById('scoreChart');
-    let chart;
+    const statusDiv = document.getElementById('status');
+    const leadsBody = document.getElementById('leadsBody');
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      const formData = new FormData(form);
-      status.textContent = '⏳ Enviando arquivo e iniciando análise...';
-
-      try {
-        const response = await fetch('/upload', {
-          method: 'POST',
-          body: formData
-        });
-        const text = await response.text();
-        status.innerHTML = text;
-        loadLeads();
-      } catch (err) {
-        status.textContent = `❌ Erro: ${err.message}`;
-      }
-    });
-
+    // Função para carregar leads existentes do leads_output.json
     async function loadLeads() {
       try {
-        const res = await fetch('/leads_output.json');
-        const leads = await res.json();
-        table.innerHTML = '';
-
-        const names = [], angel = [], icp = [], final = [];
-
-        for (const lead of leads) {
-          table.innerHTML += `
-            <tr class="border-t">
-              <td class="px-4 py-2">${lead.name}</td>
-              <td class="px-4 py-2"><a href="${lead.url}" class="text-blue-600 underline" target="_blank">Perfil</a></td>
-              <td class="px-4 py-2">${lead.angelScore}</td>
-              <td class="px-4 py-2">${lead.icpScore}</td>
-              <td class="px-4 py-2 font-semibold">${lead.finalScore.toFixed(1)}</td>
-            </tr>
-          `;
-          names.push(lead.name);
-          angel.push(lead.angelScore);
-          icp.push(lead.icpScore);
-          final.push(lead.finalScore);
+        const response = await fetch('/leads_output.json');
+        if (response.ok) {
+          const leads = await response.json();
+          leadsBody.innerHTML = '';
+          leads.forEach(lead => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>${lead.name}</td>
+              <td><a href="${lead.url}" target="_blank">Perfil</a></td>
+              <td>${lead.angelScore}</td>
+              <td>${lead.icpScore}</td>
+              <td>${lead.finalScore}</td>
+            `;
+            leadsBody.appendChild(row);
+          });
         }
-
-        if (chart) chart.destroy();
-        chart = new Chart(chartCanvas, {
-          type: 'bar',
-          data: {
-            labels: names,
-            datasets: [
-              { label: 'Angel Score', data: angel, backgroundColor: '#60a5fa' },
-              { label: 'ICP Score', data: icp, backgroundColor: '#34d399' },
-              { label: 'Final Score', data: final, backgroundColor: '#6366f1' }
-            ]
-          },
-          options: {
-            responsive: true,
-            plugins: {
-              legend: { position: 'top' },
-              title: { display: true, text: 'Distribuição de Scores' }
-            }
-          }
-        });
       } catch (err) {
         console.error('Erro ao carregar leads:', err);
       }
     }
 
-    window.onload = loadLeads;
+    // Carrega leads ao iniciar
+    loadLeads();
+
+    // Manipula o envio do formulário
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      statusDiv.textContent = 'Processando...';
+
+      const formData = new FormData(form);
+      try {
+        const response = await fetch('/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const result = await response.text();
+        statusDiv.innerHTML = result;
+
+        // Recarrega os leads após o upload
+        await loadLeads();
+      } catch (err) {
+        statusDiv.textContent = `Erro: ${err.message}`;
+      }
+    });
   </script>
 </body>
 </html>
