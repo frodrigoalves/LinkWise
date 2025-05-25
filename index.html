@@ -35,7 +35,10 @@
 </div>
 
 <h2>🗂️ Leads Table</h2>
+<input type="file" id="upload-input" accept="application/json">
+<button onclick="uploadFile()" class="btn">📤 Upload JSON</button>
 <button onclick="exportCSV()" class="btn">⬇️ Export CSV</button>
+<p id="status"></p>
 <table>
   <thead>
     <tr>
@@ -61,6 +64,53 @@ const supabase = supabase.createClient(
 
 let cachedLeads = [];
 
+async function uploadFile() {
+  const input = document.getElementById('upload-input');
+  const status = document.getElementById('status');
+  const file = input.files[0];
+  if (!file) return alert('Select a JSON file');
+
+  const reader = new FileReader();
+  reader.onload = async e => {
+    try {
+      const leads = JSON.parse(e.target.result);
+      if (!Array.isArray(leads)) throw new Error("Expected an array of objects");
+
+      const responses = [];
+      for (const lead of leads) {
+        if (!lead.url) continue;
+
+        const response = await fetch("https://qpyaxlgkbrweitufwdrq.supabase.co/rest/v1/leads", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": supabase.supabaseKey,
+            "Authorization": `Bearer ${supabase.supabaseKey}`
+          },
+          body: JSON.stringify({
+            name: lead.name || "Imported",
+            email: lead.email || `${(lead.name || 'user').toLowerCase().replace(/\s+/g, '.')}@mock.com`,
+            url: lead.url,
+            platform: "LinkedIn",
+            angelscore: lead.angelScore || 0,
+            icpscore: lead.icpScore || 0,
+            finalscore: lead.finalScore || 0,
+            tags: lead.tags || "uploaded"
+          })
+        });
+        responses.push(await response.json());
+      }
+
+      status.innerText = `Upload successful: ${responses.length} records processed.`;
+      loadLeads();
+    } catch (err) {
+      console.error(err);
+      status.innerText = `Upload failed: ${err.message}`;
+    }
+  };
+  reader.readAsText(file);
+}
+
 async function renderChart() {
   const { data, error } = await supabase.from('project_leads_stats').select('*').single();
   if (error) return console.error(error);
@@ -78,9 +128,7 @@ async function renderChart() {
     },
     options: {
       responsive: true,
-      scales: {
-        y: { beginAtZero: true }
-      }
+      scales: { y: { beginAtZero: true } }
     }
   });
 }
