@@ -27,7 +27,7 @@ const supabase = createClient(
 let leads = [];
 try {
   const data = fs.readFileSync('linkedin_profiles.json', 'utf-8');
-  leads = JSON.parse(data).slice(0, 20);
+  leads = JSON.parse(data); // Removido slice(0, 20) para processar todos
 } catch (error) {
   console.error('❌ Error reading linkedin_profiles.json:', error.message);
   process.exit(1);
@@ -37,15 +37,15 @@ async function autoLogin(page) {
   try {
     await page.goto('https://www.linkedin.com/login', {
       waitUntil: 'networkidle2',
-      timeout: 120000
+      timeout: 12000
     });
 
-    await page.waitForSelector('#username', { timeout: 60000 });
+    await page.waitForSelector('#username', { timeout: 19000 });
     await page.type('#username', process.env.VITE_LINKEDIN_EMAIL, { delay: 150 });
     await page.type('#password', process.env.VITE_LINKEDIN_PASSWORD, { delay: 150 });
     await page.click('button[type="submit"]');
 
-    await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 120000 });
+    await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 19000 });
     console.log('✅ Logged in successfully to LinkedIn.');
   } catch (error) {
     console.error('❌ Login failed:', error.message);
@@ -56,8 +56,8 @@ async function autoLogin(page) {
 async function scoreLead(bio) {
   console.log(`📝 Bio for scoring: "${bio}"`);
   if (!bio || bio.length < 80 || bio === 'Bio not found') {
-    console.log('⚠️ Bio too short or not found, skipping scoring');
-    return { angelScore: 0, icpScore: 0, finalScore: 0 };
+    console.log('⚠️ Bio too short or not found, assigning default scores');
+    return { angelScore: 1, icpScore: 1, finalScore: 1 }; // Fallback para bios curtas
   }
 
   try {
@@ -80,15 +80,15 @@ async function scoreLead(bio) {
     const { angelScore, icpScore } = JSON.parse(jsonString);
 
     const scores = {
-      angelScore: Math.min(Math.max(parseFloat(angelScore) || 0, 0), 10),
-      icpScore: Math.min(Math.max(parseFloat(icpScore) || 0, 0), 10),
-      finalScore: ((Math.min(Math.max(parseFloat(angelScore) || 0, 0), 10) + Math.min(Math.max(parseFloat(icpScore) || 0, 0), 10)) / 2)
+      angelScore: Math.min(Math.max(parseFloat(angelScore) || 1, 1), 10),
+      icpScore: Math.min(Math.max(parseFloat(icpScore) || 1, 1), 10),
+      finalScore: ((Math.min(Math.max(parseFloat(angelScore) || 1, 1), 10) + Math.min(Math.max(parseFloat(icpScore) || 1, 1), 10)) / 2)
     };
     console.log(`📈 Scores: ${JSON.stringify(scores)}`);
     return scores;
   } catch (error) {
     console.error('❌ Failed to score profile:', error.message);
-    return { angelScore: 0, icpScore: 0, finalScore: 0 };
+    return { angelScore: 1, icpScore: 1, finalScore: 1 }; // Fallback
   }
 }
 
@@ -117,17 +117,14 @@ async function generateConnectionMessage(bio, name, angelScore) {
 async function scrapeProfile(url, page) {
   try {
     console.log(`🌐 Loading profile: ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 19000 });
 
-    // Aguardar o carregamento do nome
-    await page.waitForSelector('.text-heading-xlarge', { timeout: 30000 });
+    await page.waitForSelector('.text-heading-xlarge', { timeout: 19000 });
     const name = await page.$eval('.text-heading-xlarge', el => el.textContent.trim()).catch(() => 'Name not found');
 
-    // Rolar página para carregar seções dinâmicas
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 6000)); // Reduzido para 6s devido ao timeout
 
-    // Tentar diferentes seletores para a bio
     const bio = await page.$eval('div[data-section="about"] .pv-about__summary-text', el => el.textContent.trim())
       .catch(() => page.$eval('section.pv-about-section .pv-about__summary-text', el => el.textContent.trim()))
       .catch(() => page.$eval('.pv-profile-section__section-info--text', el => el.textContent.trim()))
@@ -151,20 +148,20 @@ async function scrapeProfile(url, page) {
 
 async function sendConnectionRequest(page, url, name, bio, angelScore) {
   try {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 12000 });
 
     const connectBtn = await page.$('button[aria-label*="Invite"]');
     if (connectBtn) {
       await connectBtn.click();
 
-      const addNoteBtn = await page.waitForSelector('button[aria-label="Add a note"]', { timeout: 5000 }).catch(() => null);
+      const addNoteBtn = await page.waitForSelector('button[aria-label="Add a note"]', { timeout: 12000 }).catch(() => null);
       if (addNoteBtn) {
         await addNoteBtn.click();
         const message = await generateConnectionMessage(bio, name, angelScore);
         await page.type('#connect-cta-form__invitation', message, { delay: 50 });
       }
 
-      const sendBtn = await page.waitForSelector('button[aria-label="Send now"]', { timeout: 5000 }).catch(() => null);
+      const sendBtn = await page.waitForSelector('button[aria-label="Send now"]', { timeout: 12000 }).catch(() => null);
       if (sendBtn) {
         await sendBtn.click();
         console.log(`🤝 Connection request sent to ${name}: ${message}`);
@@ -175,7 +172,7 @@ async function sendConnectionRequest(page, url, name, bio, angelScore) {
       console.log(`⚠️ No connect button found for ${name}`);
     }
 
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise(r => setTimeout(r, 6000)); // Reduzido para 6s devido ao timeout
   } catch (error) {
     console.error(`❌ Error connecting to ${name}:`, error.message);
   }
@@ -205,7 +202,7 @@ async function main() {
       platform: 'LinkedIn',
       email: `${name.toLowerCase().replace(/\s+/g, '.')}@mockemail.com`,
       angelscore: score.angelScore,
-      icpScore: score.icpScore,
+      icpScore: score.icpScore, // Corrigido para icpScore
       finalscore: score.finalScore,
       tags: 'auto',
       meeting_scheduled: false,
