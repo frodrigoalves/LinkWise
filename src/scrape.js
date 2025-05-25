@@ -75,14 +75,13 @@ async function scoreBio(bio) {
 
 async function main() {
   const browser = await puppeteer.launch({
-    headless: false, // Modo visível para o usuário acompanhar
+    headless: false,
     defaultViewport: null,
     slowMo: 50,
     args: ['--start-maximized', '--disable-notifications']
   });
 
   const page = await browser.newPage();
-  await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 12000 }); // Abre a página de login
   await loginLinkedIn(page).catch(() => process.exit(1));
 
   const leadsRaw = JSON.parse(fs.readFileSync('linkedin_profiles.json', 'utf8'));
