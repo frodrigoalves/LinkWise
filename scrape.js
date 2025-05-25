@@ -6,15 +6,16 @@ import { createClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: './.env' });
 
+// Fallback caso .env falhe
 const requiredEnv = [
   'OPENAI_API_KEY',
   'VITE_LINKEDIN_EMAIL',
   'VITE_LINKEDIN_PASSWORD',
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_SERVICE_ROLE_KEY'
-];
-if (requiredEnv.some(key => !process.env[key])) {
-  console.error('❌ Missing required environment variables:', requiredEnv.filter(key => !process.env[key]));
+].filter(key => !process.env[key]);
+if (requiredEnv.length > 0) {
+  console.error('❌ Missing required environment variables:', requiredEnv);
   process.exit(1);
 }
 
@@ -27,7 +28,7 @@ const supabase = createClient(
 let leads = [];
 try {
   const data = fs.readFileSync('linkedin_profiles.json', 'utf-8');
-  leads = JSON.parse(data); // Removido slice(0, 20) para processar todos
+  leads = JSON.parse(data);
 } catch (error) {
   console.error('❌ Error reading linkedin_profiles.json:', error.message);
   process.exit(1);
@@ -35,17 +36,14 @@ try {
 
 async function autoLogin(page) {
   try {
-    await page.goto('https://www.linkedin.com/login', {
-      waitUntil: 'networkidle2',
-      timeout: 12000
-    });
-
-    await page.waitForSelector('#username', { timeout: 19000 });
+    await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 20000 });
+    await page.waitForSelector('#username', { timeout: 20000 });
     await page.type('#username', process.env.VITE_LINKEDIN_EMAIL, { delay: 150 });
     await page.type('#password', process.env.VITE_LINKEDIN_PASSWORD, { delay: 150 });
-    await page.click('button[type="submit"]');
-
-    await page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 19000 });
+    await Promise.all([
+      page.click('button[type="submit"]'),
+      page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 })
+    ]);
     console.log('✅ Logged in successfully to LinkedIn.');
   } catch (error) {
     console.error('❌ Login failed:', error.message);
@@ -57,17 +55,14 @@ async function scoreLead(bio) {
   console.log(`📝 Bio for scoring: "${bio}"`);
   if (!bio || bio.length < 80 || bio === 'Bio not found') {
     console.log('⚠️ Bio too short or not found, assigning default scores');
-    return { angelScore: 1, icpScore: 1, finalScore: 1 }; // Fallback para bios curtas
+    return { angelScore: 1, icpScore: 1, finalScore: 1 };
   }
 
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        {
-          role: 'system',
-          content: 'You are an expert in startup evaluation. Return only JSON with "angelScore" and "icpScore" from 0 to 10 based on the bio.'
-        },
+        { role: 'system', content: 'You are an expert in startup evaluation. Return only JSON with "angelScore" and "icpScore" from 0 to 10 based on the bio.' },
         { role: 'user', content: bio }
       ],
       temperature: 0.7,
@@ -80,15 +75,15 @@ async function scoreLead(bio) {
     const { angelScore, icpScore } = JSON.parse(jsonString);
 
     const scores = {
-      angelScore: Math.min(Math.max(parseFloat(angelScore) || 1, 1), 10),
-      icpScore: Math.min(Math.max(parseFloat(icpScore) || 1, 1), 10),
-      finalScore: ((Math.min(Math.max(parseFloat(angelScore) || 1, 1), 10) + Math.min(Math.max(parseFloat(icpScore) || 1, 1), 10)) / 2)
+      angelScore: Math.min(Math.max(parseFloat(angelScore) || 1, 0), 10),
+      icpScore: Math.min(Math.max(parseFloat(icpScore) || 1, 0), 10),
+      finalScore: ((Math.min(Math.max(parseFloat(angelScore) || 1, 0), 10) + Math.min(Math.max(parseFloat(icpScore) || 1, 0), 10)) / 2)
     };
     console.log(`📈 Scores: ${JSON.stringify(scores)}`);
     return scores;
   } catch (error) {
     console.error('❌ Failed to score profile:', error.message);
-    return { angelScore: 1, icpScore: 1, finalScore: 1 }; // Fallback
+    return { angelScore: 1, icpScore: 1, finalScore: 1 };
   }
 }
 
@@ -97,10 +92,7 @@ async function generateConnectionMessage(bio, name, angelScore) {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        {
-          role: 'system',
-          content: 'You are a startup founder using LinkWise (Superland) to connect with angel investors. Generate a concise LinkedIn connection request (max 300 characters) that is professional, personalized, and invites collaboration. Use the lead\'s name, bio, and angelScore (0-10) to tailor the message. Highlight startup investment opportunities and keep the tone enthusiastic yet respectful.'
-        },
+        { role: 'system', content: 'Generate a concise LinkedIn connection request (max 300 characters) for a startup founder using LinkWise (Superland). Personalize with name, bio, and angelScore (0-10). Highlight investment opportunities, keep tone enthusiastic yet respectful.' },
         { role: 'user', content: `Name: ${name}, Bio: ${bio}, AngelScore: ${angelScore}` }
       ],
       temperature: 0.5,
@@ -117,13 +109,13 @@ async function generateConnectionMessage(bio, name, angelScore) {
 async function scrapeProfile(url, page) {
   try {
     console.log(`🌐 Loading profile: ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 19000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
 
-    await page.waitForSelector('.text-heading-xlarge', { timeout: 19000 });
+    await page.waitForSelector('.text-heading-xlarge', { timeout: 20000 });
     const name = await page.$eval('.text-heading-xlarge', el => el.textContent.trim()).catch(() => 'Name not found');
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 6000)); // Reduzido para 6s devido ao timeout
+    await new Promise(resolve => setTimeout(resolve, 6000));
 
     const bio = await page.$eval('div[data-section="about"] .pv-about__summary-text', el => el.textContent.trim())
       .catch(() => page.$eval('section.pv-about-section .pv-about__summary-text', el => el.textContent.trim()))
@@ -134,12 +126,7 @@ async function scrapeProfile(url, page) {
       }))
       .catch(() => 'Bio not found');
 
-    const result = {
-      name: name.replace(/\s+/g, ' ').trim(),
-      bio: bio.replace(/\s+/g, ' ').trim()
-    };
-    console.log(`📝 Scraped: ${JSON.stringify(result)}`);
-    return result;
+    return { name: name.replace(/\s+/g, ' ').trim(), bio: bio.replace(/\s+/g, ' ').trim() };
   } catch (error) {
     console.error(`❌ Error loading profile ${url}:`, error.message);
     return { name: 'Error', bio: 'Bio not found' };
@@ -148,7 +135,7 @@ async function scrapeProfile(url, page) {
 
 async function sendConnectionRequest(page, url, name, bio, angelScore) {
   try {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 12000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
 
     const connectBtn = await page.$('button[aria-label*="Invite"]');
     if (connectBtn) {
@@ -172,7 +159,7 @@ async function sendConnectionRequest(page, url, name, bio, angelScore) {
       console.log(`⚠️ No connect button found for ${name}`);
     }
 
-    await new Promise(r => setTimeout(r, 6000)); // Reduzido para 6s devido ao timeout
+    await new Promise(r => setTimeout(r, 6000));
   } catch (error) {
     console.error(`❌ Error connecting to ${name}:`, error.message);
   }
@@ -180,7 +167,7 @@ async function sendConnectionRequest(page, url, name, bio, angelScore) {
 
 async function main() {
   const browser = await puppeteer.launch({
-    headless: false,
+    headless: process.env.SHOW_BROWSER ? false : 'new',
     defaultViewport: null,
     slowMo: 50,
     args: ['--start-maximized', '--disable-notifications']
@@ -201,9 +188,9 @@ async function main() {
       url: lead.url,
       platform: 'LinkedIn',
       email: `${name.toLowerCase().replace(/\s+/g, '.')}@mockemail.com`,
-      angelscore: score.angelScore,
-      icpScore: score.icpScore, // Corrigido para icpScore
-      finalscore: score.finalScore,
+      angelScore: score.angelScore,
+      icpScore: score.icpScore,
+      finalScore: score.finalScore,
       tags: 'auto',
       meeting_scheduled: false,
       meeting_time: null
@@ -215,17 +202,12 @@ async function main() {
       console.error(`❌ Failed to insert ${name} into Supabase:`, err.message);
       return { error: err };
     });
-    if (!error) {
-      console.log(`✅ Successfully inserted ${name} into Supabase`);
-    }
+    if (!error) console.log(`✅ Successfully inserted ${name} into Supabase`);
 
     results.push(leadData);
 
-    if (score.angelScore >= 7) {
-      await sendConnectionRequest(page, lead.url, name, bio, score.angelScore);
-    } else {
-      console.log(`⛔️ Skipped ${name}, angelScore too low (${score.angelScore})`);
-    }
+    if (score.angelScore >= 7) await sendConnectionRequest(page, lead.url, name, bio, score.angelScore);
+    else console.log(`⛔️ Skipped ${name}, angelScore too low (${score.angelScore})`);
   }
 
   fs.writeFileSync('public/leads_output.json', JSON.stringify(results, null, 2));
