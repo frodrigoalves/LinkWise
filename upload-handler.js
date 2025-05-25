@@ -42,27 +42,34 @@ app.post('/upload', upload.single('profiles'), async (req, res) => {
     console.log('✅ Arquivo linkedin_profiles.json atualizado.');
 
     const scriptPath = path.join(__dirname, 'src', 'scrape.js');
-    exec(`SHOW_BROWSER=true node ${scriptPath}`, async (error, stdout, stderr) => {
-      if (error) {
-        console.error('❌ Erro no scraper:', error.message);
-        return res.status(500).send(`<h2>❌ Erro ao executar a análise.</h2><pre>${error.message}</pre>`);
+    // Instala o Chrome antes de executar o script
+    exec('npx puppeteer browsers install chrome', (installError) => {
+      if (installError) {
+        console.error('❌ Erro ao instalar Chrome:', installError.message);
+        return res.status(500).send(`<h2>❌ Erro ao instalar Chrome</h2><pre>${installError.message}</pre>`);
       }
-
-      console.log(stdout);
-
-      if (fs.existsSync(leadsOutputPath)) {
-        const data = JSON.parse(fs.readFileSync(leadsOutputPath, 'utf-8'));
-
-        const { error: insertError } = await supabase.from('leads').insert(data);
-        if (insertError) {
-          console.error('❌ Erro ao inserir no Supabase:', insertError.message);
-          return res.status(500).send(`<h2>❌ Erro ao inserir no Supabase</h2><pre>${insertError.message}</pre>`);
+      exec(`SHOW_BROWSER=true node ${scriptPath}`, async (error, stdout, stderr) => {
+        if (error) {
+          console.error('❌ Erro no scraper:', error.message);
+          return res.status(500).send(`<h2>❌ Erro ao executar a análise.</h2><pre>${error.message}</pre>`);
         }
 
-        console.log('✅ Leads inseridos com sucesso no Supabase.');
-      }
+        console.log(stdout);
 
-      res.send(`<h1>✅ Perfis analisados com sucesso!</h1><pre>${stdout}</pre><a href="/">Voltar</a>`);
+        if (fs.existsSync(leadsOutputPath)) {
+          const data = JSON.parse(fs.readFileSync(leadsOutputPath, 'utf-8'));
+
+          const { error: insertError } = await supabase.from('leads').insert(data);
+          if (insertError) {
+            console.error('❌ Erro ao inserir no Supabase:', insertError.message);
+            return res.status(500).send(`<h2>❌ Erro ao inserir no Supabase</h2><pre>${insertError.message}</pre>`);
+          }
+
+          console.log('✅ Leads inseridos com sucesso no Supabase.');
+        }
+
+        res.send(`<h1>✅ Perfis analisados com sucesso!</h1><pre>${stdout}</pre><a href="/">Voltar</a>`);
+      });
     });
   } catch (err) {
     console.error('❌ Erro geral no upload:', err.message);
