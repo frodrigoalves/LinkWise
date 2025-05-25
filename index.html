@@ -43,8 +43,9 @@
       flex-direction: column;
       gap: 10px;
     }
-    .upload-section input[type="file"] {
+    .upload-section select, .upload-section input {
       padding: 10px;
+      font-family: Arial, sans-serif;
     }
     .upload-section button {
       background-color: #1a3c34;
@@ -97,10 +98,43 @@
 
   <div class="container">
     <div class="upload-section">
-      <h2>Upload de Perfis LinkedIn</h2>
-      <form id="uploadForm" enctype="multipart/form-data">
-        <input type="file" name="profiles" accept=".json" required />
-        <button type="submit">Enviar e Processar</button>
+      <h2>Definir Critérios de Perfis</h2>
+      <form id="profileForm">
+        <select name="profileType" required>
+          <option value="">Selecione o Tipo de Perfil</option>
+          <option value="investor">Investidor</option>
+          <option value="entrepreneur">Empreendedor</option>
+          <option value="professional">Profissional</option>
+        </select>
+        <select name="ageRange" required>
+          <option value="">Faixa Etária</option>
+          <option value="18-25">18-25</option>
+          <option value="26-35">26-35</option>
+          <option value="36-50">36-50</option>
+          <option value="50+">50+</option>
+        </select>
+        <select name="gender" required>
+          <option value="">Sexo</option>
+          <option value="male">Masculino</option>
+          <option value="female">Feminino</option>
+          <option value="other">Outro</option>
+        </select>
+        <select name="region" required>
+          <option value="">Continente/Idioma</option>
+          <option value="north-america">América do Norte (EN)</option>
+          <option value="europe">Europa (EN/FR/DE)</option>
+          <option value="asia">Ásia (EN/JA)</option>
+          <option value="south-america">América do Sul (PT/ES)</option>
+        </select>
+        <select name="industry" required>
+          <option value="">Tipo de Atuação</option>
+          <option value="tech">Tecnologia</option>
+          <option value="finance">Finanças</option>
+          <option value="health">Saúde</option>
+          <option value="other">Outro</option>
+        </select>
+        <input type="number" name="numLinks" min="1" max="10" value="5" required placeholder="Número de links (1-10)" />
+        <button type="submit">Gerar e Processar Perfis</button>
       </form>
       <div id="status"></div>
     </div>
@@ -123,11 +157,10 @@
   </div>
 
   <script>
-    const form = document.getElementById('uploadForm');
+    const form = document.getElementById('profileForm');
     const statusDiv = document.getElementById('status');
     const leadsBody = document.getElementById('leadsBody');
 
-    // Função para carregar leads existentes do leads_output.json
     async function loadLeads() {
       try {
         const response = await fetch('/leads_output.json');
@@ -151,24 +184,23 @@
       }
     }
 
-    // Carrega leads ao iniciar
     loadLeads();
 
-    // Manipula o envio do formulário
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       statusDiv.textContent = 'Processando...';
 
       const formData = new FormData(form);
+      const criteria = Object.fromEntries(formData);
+
       try {
-        const response = await fetch('/upload', {
+        const response = await fetch('/generate-profiles', {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(criteria)
         });
         const result = await response.text();
         statusDiv.innerHTML = result;
-
-        // Recarrega os leads após o upload
         await loadLeads();
       } catch (err) {
         statusDiv.textContent = `Erro: ${err.message}`;

@@ -3,10 +3,10 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
+import path from 'path';
 
 dotenv.config({ path: './.env' });
 
-// Fallback caso .env falhe
 const requiredEnv = [
   'OPENAI_API_KEY',
   'VITE_LINKEDIN_EMAIL',
@@ -14,6 +14,7 @@ const requiredEnv = [
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_SERVICE_ROLE_KEY'
 ].filter(key => !process.env[key]);
+
 if (requiredEnv.length > 0) {
   console.error('❌ Missing required environment variables:', requiredEnv);
   process.exit(1);
@@ -34,27 +35,29 @@ try {
   process.exit(1);
 }
 
-async function autoLogin(page) {
-  try {
-    await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 20000 });
-    await page.waitForSelector('#username', { timeout: 20000 });
-    await page.type('#username', process.env.VITE_LINKEDIN_EMAIL, { delay: 150 });
-    await page.type('#password', process.env.VITE_LINKEDIN_PASSWORD, { delay: 150 });
-    await Promise.all([
-      page.click('button[type="submit"]'),
-      page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 })
-    ]);
-    console.log('✅ Logged in successfully to LinkedIn.');
-  } catch (error) {
-    console.error('❌ Login failed:', error.message);
-    throw error;
+async function autoLogin(page, retries = 2) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 25000 });
+      await page.waitForSelector('#username', { timeout: 25000 });
+      await page.type('#username', process.env.VITE_LINKEDIN_EMAIL, { delay: 150 });
+      await page.type('#password', process.env.VITE_LINKEDIN_PASSWORD, { delay: 150 });
+      await Promise.all([
+        page.click('button[type="submit"]'),
+        page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 25000 })
+      ]);
+      console.log('✅ Logged in successfully to LinkedIn.');
+      return;
+    } catch (error) {
+      console.error(`❌ Login attempt ${attempt + 1} failed:`, error.message);
+      if (attempt === retries - 1) throw error;
+      await new Promise(r => setTimeout(r, 5000));
+    }
   }
 }
 
 async function scoreLead(bio) {
-  console.log(`📝 Bio for scoring: "${bio}"`);
   if (!bio || bio.length < 80 || bio === 'Bio not found') {
-    console.log('⚠️ Bio too short or not found, assigning default scores');
     return { angelScore: 1, icpScore: 1, finalScore: 1 };
   }
 
@@ -62,7 +65,7 @@ async function scoreLead(bio) {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are an expert in startup evaluation. Return only JSON with "angelScore" and "icpScore" from 0 to 10 based on the bio.' },
+        { role: 'system', content: 'Return JSON with angelScore and icpScore (0-10) based on the bio.' },
         { role: 'user', content: bio }
       ],
       temperature: 0.7,
@@ -70,19 +73,14 @@ async function scoreLead(bio) {
     });
 
     const content = response.choices[0].message.content || '{}';
-    const match = content.match(/\{[\s\S]*\}/);
-    const jsonString = match ? match[0] : '{}';
-    const { angelScore, icpScore } = JSON.parse(jsonString);
+    const json = JSON.parse(content.match(/\{[\s\S]*\}/)?.[0] || '{}');
+    const angelScore = Math.min(Math.max(Number(json.angelScore) || 1, 0), 10);
+    const icpScore = Math.min(Math.max(Number(json.icpScore) || 1, 0), 10);
+    const finalScore = (angelScore + icpScore) / 2;
 
-    const scores = {
-      angelScore: Math.min(Math.max(parseFloat(angelScore) || 1, 0), 10),
-      icpScore: Math.min(Math.max(parseFloat(icpScore) || 1, 0), 10),
-      finalScore: ((Math.min(Math.max(parseFloat(angelScore) || 1, 0), 10) + Math.min(Math.max(parseFloat(icpScore) || 1, 0), 10)) / 2)
-    };
-    console.log(`📈 Scores: ${JSON.stringify(scores)}`);
-    return scores;
-  } catch (error) {
-    console.error('❌ Failed to score profile:', error.message);
+    return { angelScore, icpScore, finalScore };
+  } catch (err) {
+    console.error('❌ GPT Score error:', err.message);
     return { angelScore: 1, icpScore: 1, finalScore: 1 };
   }
 }
@@ -92,7 +90,7 @@ async function generateConnectionMessage(bio, name, angelScore) {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'Generate a concise LinkedIn connection request (max 300 characters) for a startup founder using LinkWise (Superland). Personalize with name, bio, and angelScore (0-10). Highlight investment opportunities, keep tone enthusiastic yet respectful.' },
+        { role: 'system', content: 'Generate a concise LinkedIn message (max 300 chars). Mention name, bio, angelScore and investment.' },
         { role: 'user', content: `Name: ${name}, Bio: ${bio}, AngelScore: ${angelScore}` }
       ],
       temperature: 0.5,
@@ -100,68 +98,63 @@ async function generateConnectionMessage(bio, name, angelScore) {
     });
 
     return response.choices[0].message.content.trim().slice(0, 300);
-  } catch (error) {
-    console.error('❌ Failed to generate message:', error.message);
-    return `Hi ${name}, I’m with LinkWise (Superland) and admire your expertise. Let’s connect to explore investment opportunities!`;
+  } catch {
+    return `Hi ${name}, I’m with LinkWise (Superland). Let's connect to explore investment opportunities!`;
   }
 }
 
 async function scrapeProfile(url, page) {
   try {
-    console.log(`🌐 Loading profile: ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+    await page.waitForSelector('.text-heading-xlarge', { timeout: 25000 });
 
-    await page.waitForSelector('.text-heading-xlarge', { timeout: 20000 });
     const name = await page.$eval('.text-heading-xlarge', el => el.textContent.trim()).catch(() => 'Name not found');
-
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await new Promise(resolve => setTimeout(resolve, 6000));
+    await new Promise(res => setTimeout(res, 6000));
 
     const bio = await page.$eval('div[data-section="about"] .pv-about__summary-text', el => el.textContent.trim())
-      .catch(() => page.$eval('section.pv-about-section .pv-about__summary-text', el => el.textContent.trim()))
-      .catch(() => page.$eval('.pv-profile-section__section-info--text', el => el.textContent.trim()))
       .catch(() => page.evaluate(() => {
-        const aboutSection = document.querySelector('section[id*="about"]');
-        return aboutSection ? aboutSection.textContent.trim() : 'Bio not found';
+        const el = document.querySelector('[data-section="about"], section[id*="about"]');
+        return el ? el.innerText.trim() : 'Bio not found';
       }))
       .catch(() => 'Bio not found');
 
-    return { name: name.replace(/\s+/g, ' ').trim(), bio: bio.replace(/\s+/g, ' ').trim() };
-  } catch (error) {
-    console.error(`❌ Error loading profile ${url}:`, error.message);
+    return { name, bio };
+  } catch (err) {
+    console.error(`❌ Error scraping ${url}:`, err.message);
     return { name: 'Error', bio: 'Bio not found' };
   }
 }
 
 async function sendConnectionRequest(page, url, name, bio, angelScore) {
   try {
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
 
-    const connectBtn = await page.$('button[aria-label*="Invite"]');
-    if (connectBtn) {
-      await connectBtn.click();
-
-      const addNoteBtn = await page.waitForSelector('button[aria-label="Add a note"]', { timeout: 12000 }).catch(() => null);
-      if (addNoteBtn) {
-        await addNoteBtn.click();
-        const message = await generateConnectionMessage(bio, name, angelScore);
-        await page.type('#connect-cta-form__invitation', message, { delay: 50 });
-      }
-
-      const sendBtn = await page.waitForSelector('button[aria-label="Send now"]', { timeout: 12000 }).catch(() => null);
-      if (sendBtn) {
-        await sendBtn.click();
-        console.log(`🤝 Connection request sent to ${name}: ${message}`);
-      } else {
-        console.log(`⚠️ Cannot send invite to ${name}`);
-      }
-    } else {
-      console.log(`⚠️ No connect button found for ${name}`);
+    const connect = await page.$('button[aria-label*="Invite"]');
+    if (!connect) {
+      console.warn(`⚠️ No connect button for ${name}`);
+      return;
     }
 
-    await new Promise(r => setTimeout(r, 6000));
-  } catch (error) {
-    console.error(`❌ Error connecting to ${name}:`, error.message);
+    await connect.click();
+
+    const addNoteBtn = await page.waitForSelector('button[aria-label="Add a note"]', { timeout: 10000 }).catch(() => null);
+    let message = '';
+    if (addNoteBtn) {
+      await addNoteBtn.click();
+      message = await generateConnectionMessage(bio, name, angelScore);
+      await page.type('#connect-cta-form__invitation', message, { delay: 50 });
+    }
+
+    const sendBtn = await page.waitForSelector('button[aria-label="Send now"]', { timeout: 10000 }).catch(() => null);
+    if (sendBtn) {
+      await sendBtn.click();
+      console.log(`🤝 Sent invite to ${name}: ${message}`);
+    } else {
+      console.warn(`⚠️ No send button for ${name}`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ Connection error for ${name}: ${err.message}`);
   }
 }
 
@@ -180,39 +173,44 @@ async function main() {
 
   for (const lead of leads) {
     const { name, bio } = await scrapeProfile(lead.url, page);
-    const score = await scoreLead(bio);
+    const scores = await scoreLead(bio);
 
     const leadData = {
       name,
       bio,
       url: lead.url,
+      email: `${name.toLowerCase().replace(/\s+/g, '.')}@mockmail.com`,
+      angelScore: scores.angelScore,
+      icpScore: scores.icpScore,
+      finalScore: scores.finalScore,
       platform: 'LinkedIn',
-      email: `${name.toLowerCase().replace(/\s+/g, '.')}@mockemail.com`,
-      angelScore: score.angelScore,
-      icpScore: score.icpScore,
-      finalScore: score.finalScore,
       tags: 'auto',
       meeting_scheduled: false,
       meeting_time: null
     };
 
-    console.log(`📊 ${name} – Angel: ${score.angelScore} | ICP: ${score.icpScore}`);
-
     const { error } = await supabase.from('leads').insert(leadData).catch(err => {
-      console.error(`❌ Failed to insert ${name} into Supabase:`, err.message);
+      console.warn(`⚠️ Supabase insert failed for ${name}:`, err.message);
       return { error: err };
     });
-    if (!error) console.log(`✅ Successfully inserted ${name} into Supabase`);
+
+    if (!error) console.log(`✅ Inserted ${name} into Supabase`);
+
+    if (scores.angelScore >= 7) {
+      await sendConnectionRequest(page, lead.url, name, bio, scores.angelScore);
+    } else {
+      console.log(`⛔️ Skipped ${name} (angelScore: ${scores.angelScore})`);
+    }
 
     results.push(leadData);
-
-    if (score.angelScore >= 7) await sendConnectionRequest(page, lead.url, name, bio, score.angelScore);
-    else console.log(`⛔️ Skipped ${name}, angelScore too low (${score.angelScore})`);
   }
 
-  fs.writeFileSync('public/leads_output.json', JSON.stringify(results, null, 2));
+  const outDir = path.join('public');
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, 'leads_output.json'), JSON.stringify(results, null, 2));
+
   await browser.close();
-  console.log('✅ All profiles processed.');
+  console.log(`✅ Done. ${results.length} profiles processed.`);
 }
 
 main().catch(err => {
