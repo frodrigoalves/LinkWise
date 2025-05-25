@@ -1,15 +1,20 @@
-node_modules
+# Ambiente
 .env
+node_modules/
+
+# Output e arquivos temporários
 leads_output.json
 scrape.log
-uploads
-leads_list.txt
-meetings_list.txt
+uploads/
+
+# Arquivos de execução
 setup-and-run.sh
 leads_list.txt
 meetings_list.txt
-setup-and-run.sh
-leads_list.txt
-meetings_list.txt
-setup-and-run.sh
+
+# Cache e logs
+*.log
+*.tmp
+
+# Lockfile específico
 package-lock.json
