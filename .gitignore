@@ -3,3 +3,6 @@ node_modules
 leads_output.json
 scrape.log
 uploads
+leads_list.txt
+meetings_list.txt
+setup-and-run.sh
