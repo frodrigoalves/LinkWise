@@ -3,13 +3,16 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
-import open from 'open';
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000; // Usa PORT do Render ou 3000 como fallback
 
 const __dirname = path.resolve();
-const upload = multer({ dest: path.join(__dirname, 'uploads') });
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+const upload = multer({ dest: uploadDir });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -18,6 +21,10 @@ app.get('/', (req, res) => {
 });
 
 app.post('/upload', upload.single('profiles'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).send("Nenhum arquivo enviado.");
+  }
+
   const tempPath = req.file.path;
   const targetPath = path.join(__dirname, 'linkedin_profiles.json');
 
@@ -46,8 +53,6 @@ app.post('/upload', upload.single('profiles'), (req, res) => {
   });
 });
 
-app.listen(port, async () => {
-  const url = `http://localhost:${port}`;
-  console.log(`🚀 Servidor rodando: ${url}`);
-  await open(url); // Abrir navegador automaticamente
+app.listen(port, () => {
+  console.log(`🚀 Servidor rodando: ${process.env.PORT || port}`);
 });
