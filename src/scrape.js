@@ -32,9 +32,9 @@ function sanitizeName(name) {
 }
 
 async function loginLinkedIn(page) {
-  await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2' });
-  await page.type('#username', process.env.VITE_LINKEDIN_EMAIL);
-  await page.type('#password', process.env.VITE_LINKEDIN_PASSWORD);
+  await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 12000 });
+  await page.type('#username', process.env.VITE_LINKEDIN_EMAIL, { delay: 150 });
+  await page.type('#password', process.env.VITE_LINKEDIN_PASSWORD, { delay: 150 });
 
   await Promise.all([
     page.click('button[type="submit"]'),
@@ -74,9 +74,16 @@ async function scoreBio(bio) {
 }
 
 async function main() {
-  const browser = await puppeteer.launch({ headless: 'new' });
+  const browser = await puppeteer.launch({
+    headless: false, // Modo visível para o usuário acompanhar
+    defaultViewport: null,
+    slowMo: 50,
+    args: ['--start-maximized', '--disable-notifications']
+  });
+
   const page = await browser.newPage();
-  await loginLinkedIn(page);
+  await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 12000 }); // Abre a página de login
+  await loginLinkedIn(page).catch(() => process.exit(1));
 
   const leadsRaw = JSON.parse(fs.readFileSync('linkedin_profiles.json', 'utf8'));
   const results = [];
@@ -124,4 +131,7 @@ async function main() {
   }
 }
 
-main();
+main().catch(err => {
+  console.error('❌ Processo principal falhou:', err.message);
+  process.exit(1);
+});
