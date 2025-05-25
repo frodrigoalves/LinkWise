@@ -18,7 +18,7 @@ const supabase = createClient(
 
 const __dirname = path.resolve();
 const uploadDir = path.join(__dirname, 'uploads');
-const leadsOutputPath = path.join(__dirname, 'leads_output.json');
+const leadsOutputPath = path.join(__dirname, 'public', 'leads_output.json');
 
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -27,7 +27,15 @@ const upload = multer({ dest: uploadDir });
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'src/index.html'));
+  res.sendFile(path.join(__dirname, 'src', 'index.html'));
+});
+
+app.get('/leads_output.json', (req, res) => {
+  if (fs.existsSync(leadsOutputPath)) {
+    res.sendFile(leadsOutputPath);
+  } else {
+    res.status(404).send('Leads output not found.');
+  }
 });
 
 app.post('/upload', upload.single('profiles'), async (req, res) => {
@@ -42,7 +50,6 @@ app.post('/upload', upload.single('profiles'), async (req, res) => {
     console.log('✅ Arquivo linkedin_profiles.json atualizado.');
 
     const scriptPath = path.join(__dirname, 'src', 'scrape.js');
-    // Instala o Chrome antes de executar o script
     exec('npx puppeteer browsers install chrome', (installError) => {
       if (installError) {
         console.error('❌ Erro ao instalar Chrome:', installError.message);
@@ -58,13 +65,11 @@ app.post('/upload', upload.single('profiles'), async (req, res) => {
 
         if (fs.existsSync(leadsOutputPath)) {
           const data = JSON.parse(fs.readFileSync(leadsOutputPath, 'utf-8'));
-
           const { error: insertError } = await supabase.from('leads').insert(data);
           if (insertError) {
             console.error('❌ Erro ao inserir no Supabase:', insertError.message);
             return res.status(500).send(`<h2>❌ Erro ao inserir no Supabase</h2><pre>${insertError.message}</pre>`);
           }
-
           console.log('✅ Leads inseridos com sucesso no Supabase.');
         }
 
