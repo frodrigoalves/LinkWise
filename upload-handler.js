@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
+<<<<<<< HEAD
 
 const app = express();
 const port = process.env.PORT || 3000; // Usa PORT do Render ou 3000 como fallback
@@ -12,11 +13,33 @@ const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+=======
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.VITE_SUPABASE_SERVICE_ROLE_KEY
+);
+
+const __dirname = path.resolve();
+const uploadDir = path.join(__dirname, 'uploads');
+const leadsOutputPath = path.join(__dirname, 'leads_output.json');
+
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+>>>>>>> 2aa57be (🚧 Initial delivery with Supabase integration, GPT scoring and upload UI)
 const upload = multer({ dest: uploadDir });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
+<<<<<<< HEAD
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -24,10 +47,18 @@ app.post('/upload', upload.single('profiles'), (req, res) => {
   if (!req.file) {
     return res.status(400).send("Nenhum arquivo enviado.");
   }
+=======
+  res.sendFile(path.join(__dirname, 'src/index.html'));
+});
+
+app.post('/upload', upload.single('profiles'), async (req, res) => {
+  if (!req.file) return res.status(400).send('Nenhum arquivo enviado.');
+>>>>>>> 2aa57be (🚧 Initial delivery with Supabase integration, GPT scoring and upload UI)
 
   const tempPath = req.file.path;
   const targetPath = path.join(__dirname, 'linkedin_profiles.json');
 
+<<<<<<< HEAD
   fs.copyFile(tempPath, targetPath, (copyErr) => {
     if (copyErr) {
       console.error("❌ Erro ao copiar arquivo:", copyErr);
@@ -56,3 +87,42 @@ app.post('/upload', upload.single('profiles'), (req, res) => {
 app.listen(port, () => {
   console.log(`🚀 Servidor rodando: ${process.env.PORT || port}`);
 });
+=======
+  try {
+    fs.copyFileSync(tempPath, targetPath);
+    fs.unlinkSync(tempPath);
+    console.log('✅ Arquivo linkedin_profiles.json atualizado.');
+
+    exec('node src/scrape.js', async (error, stdout, stderr) => {
+      if (error) {
+        console.error('❌ Erro no scraper:', error.message);
+        return res.status(500).send(`<h2>❌ Erro ao executar a análise.</h2><pre>${error.message}</pre>`);
+      }
+
+      console.log(stdout);
+
+      if (fs.existsSync(leadsOutputPath)) {
+        const data = JSON.parse(fs.readFileSync(leadsOutputPath, 'utf-8'));
+
+        // Insere no Supabase
+        const { error: insertError } = await supabase.from('leads').insert(data);
+        if (insertError) {
+          console.error('❌ Erro ao inserir no Supabase:', insertError.message);
+          return res.status(500).send(`<h2>❌ Erro ao inserir no Supabase</h2><pre>${insertError.message}</pre>`);
+        }
+
+        console.log('✅ Leads inseridos com sucesso no Supabase.');
+      }
+
+      res.send(`<h1>✅ Perfis analisados com sucesso!</h1><pre>${stdout}</pre><a href="/">Voltar</a>`);
+    });
+  } catch (err) {
+    console.error('❌ Erro geral no upload:', err.message);
+    res.status(500).send(`<h2>❌ Erro no upload</h2><pre>${err.message}</pre>`);
+  }
+});
+
+app.listen(port, '0.0.0.0', () => {
+  console.log(`🚀 Servidor ativo na porta ${port}`);
+});
+>>>>>>> 2aa57be (🚧 Initial delivery with Supabase integration, GPT scoring and upload UI)
